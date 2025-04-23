@@ -7,6 +7,8 @@ private import TypeInference
 
 /** An AST node that may mention a type. */
 abstract class TypeMention extends AstNode {
+  TypeMention() { exists(this.getLocation()) }
+
   /** Gets the `i`th type argument mention, if any. */
   abstract TypeMention getTypeArgument(int i);
 
@@ -119,6 +121,7 @@ class NonAliasPathMention extends PathMention {
   }
 
   override Type resolveType() {
+    // this.getLocation().getStartLine() = 189 and
     exists(ItemNode i | i = resolvePath(this) |
       result = TStruct(i)
       or
@@ -247,4 +250,20 @@ class TraitMention extends TypeMention, TraitItemNode {
   }
 
   override Type resolveType() { result = TTrait(this) }
+}
+
+// NOTE: Since the implicit type parameter for the self type parameter never
+// appears in the AST, we somewhat arbitrarily choose the name of a trait as a
+// type mention. This works because there is a one-to-one correspondence between
+// a trait and its name.
+class SelfTypeParameterMention extends TypeMention, Name {
+  Trait trait;
+
+  SelfTypeParameterMention() { trait.getName() = this }
+
+  Trait getTrait() { result = trait }
+
+  override Type resolveType() { result = TSelfTypeParameter(trait) }
+
+  override TypeReprMention getTypeArgument(int i) { none() }
 }
