@@ -7,8 +7,6 @@ private import TypeInference
 
 /** An AST node that may mention a type. */
 abstract class TypeMention extends AstNode {
-  TypeMention() { exists(this.getLocation()) }
-
   /** Gets the `i`th type argument mention, if any. */
   abstract TypeMention getTypeArgument(int i);
 

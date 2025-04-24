@@ -949,29 +949,46 @@ private module Cached {
   }
 
   private class ReceiverExpr extends Expr {
-    ReceiverExpr() { any(MethodCallExpr mce).getReceiver() = this }
+    MethodCallExpr mce;
+
+    ReceiverExpr() { mce.getReceiver() = this }
+
+    string getField() { result = mce.getIdentifier().getText() }
 
     Type resolveTypeAt(TypePath path) { result = inferTypeDeref(this, path) }
   }
 
+  private module IsInstantiationOfInput implements IsInstantiationOfSig<ReceiverExpr> {
+    predicate potentialInstantiationOf(TypeAbstraction impl, ReceiverExpr receiver, TypeMention sub) {
+      sub.resolveType() = receiver.resolveTypeAt(TypePath::nil()) and
+      sub = impl.(ImplTypeAbstraction).getSelfTy().(TypeReprMention) and
+      exists(impl.(ImplItemNode).getASuccessor(receiver.getField()))
+    }
+  }
+
+  bindingset[item, name]
+  pragma[inline_late]
+  private Function getMethodSuccessor(ItemNode item, string name) {
+    result = item.getASuccessor(name)
+  }
+
   bindingset[tp, name]
+  pragma[inline_late]
   private Function getTypeParameterMethod(TypeParameter tp, string name) {
-    result = tp.(TypeParamTypeParameter).getTypeParam().(ItemNode).getASuccessor(name)
+    result = getMethodSuccessor(tp.(TypeParamTypeParameter).getTypeParam(), name)
     or
-    result = tp.(SelfTypeParameter).getTrait().(ItemNode).getASuccessor(name)
+    result = getMethodSuccessor(tp.(SelfTypeParameter).getTrait(), name)
   }
 
   /**
    * Gets an `impl` block with an implementing type that matches the type of
    * `mce`'s receiver.
    */
-  private predicate methodCallMatchingImpl(ReceiverExpr receiver, string name, Function function) {
-    exists(MethodCallExpr mce, Impl impl |
-      mce.getReceiver() = receiver and
-      mce.getIdentifier().getText() = name and
-      TypeTreeUtils<ReceiverExpr, TypeMention>::isInstantiationOf(impl, receiver,
-        impl.getSelfTy().(TypeReprMention)) and
-      function = impl.(ImplItemNode).getASuccessor(name)
+  private predicate methodCallMatchingImpl(ReceiverExpr receiver, Function function) {
+    exists(Impl impl |
+      IsInstantiationOf<ReceiverExpr, IsInstantiationOfInput>::isInstantiationOf(receiver, impl,
+        impl.(ImplTypeAbstraction).getSelfTy().(TypeReprMention)) and
+      function = getMethodSuccessor(impl, receiver.getField())
     )
   }
 
@@ -980,16 +997,14 @@ private module Cached {
    */
   cached
   Function resolveMethodCallExpr(MethodCallExpr mce) {
-    exists(ReceiverExpr receiver, string name |
-      mce.getReceiver() = receiver and
-      mce.getIdentifier().getText() = name
-    |
+    exists(ReceiverExpr receiver | mce.getReceiver() = receiver |
       // The method comes from an `impl` block targeting the type of `receiver`.
-      methodCallMatchingImpl(receiver, name, result)
+      methodCallMatchingImpl(receiver, result)
       or
       // The type of `receiver` is a type parameter and the method comes from a
       // trait bound on the type parameter.
-      result = getTypeParameterMethod(inferTypeDeref(receiver, TypePath::nil()), name)
+      result =
+        getTypeParameterMethod(inferTypeDeref(receiver, TypePath::nil()), receiver.getField())
     )
   }
 

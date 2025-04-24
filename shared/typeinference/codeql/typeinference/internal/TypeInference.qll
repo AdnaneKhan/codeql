@@ -368,7 +368,7 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
       predicate potentialInstantiationOf(TypeAbstraction abs, App app, TypeMention term);
     }
 
-    module GenIsInstantiationOf<TypeTreeSig App, IsInstantiationOfSig<App> Input> {
+    module IsInstantiationOf<TypeTreeSig App, IsInstantiationOfSig<App> Input> {
       private import Input
 
       /** Gets the `i`th path in `term` per some arbitrary order. */
@@ -518,6 +518,28 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
             )
           )
         )
+      }
+
+      /**
+       * Holds if the type `type` can satisfy the constraint `constraint`
+       * through `abs`, `sub`, and `constraintMention`.
+       */
+      predicate typeToTypeMention(
+        Type type, Type constraint, TypeAbstraction abs, TypeMention sub,
+        TypeMention constraintMention
+      ) {
+        typeSatisfiesConstraintTrans(abs, sub, constraintMention, _, _) and
+        type = resolveTypeMentionRoot(sub) and
+        constraint = resolveTypeMentionRoot(constraintMention)
+      }
+
+      int countConstraintImplementations(Type type, Type constraint) {
+        result =
+          strictcount(TypeAbstraction abs, TypeMention tm, TypeMention constraintMention |
+            typeToTypeMention(type, constraint, abs, tm, constraintMention)
+          |
+            constraintMention
+          )
       }
 
       /**
@@ -847,23 +869,23 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
 
       private module AccessConstraint {
         /**
-         * Holds if inferring types at `a` might depend on the type at `path` of
-         * `apos` having `base` as a transitive base type.
+         * If the access `a` for `apos` and `path` has the root type `type` and
+         * type inference requires it to satisfy the constraint `constraint`.
          */
-        private predicate relevantAccess(Access a, AccessPosition apos, TypePath path, Type base) {
+        private predicate relevantAccess(
+          Access a, AccessPosition apos, TypePath path, Type type, Type constraint
+        ) {
           exists(Declaration target, DeclarationPosition dpos |
-            adjustedAccessType(a, apos, target, _, _) and
-            accessDeclarationPositionMatch(apos, dpos)
-          |
-            path.isEmpty() and declarationBaseType(target, dpos, base, _, _)
-            or
-            typeParameterConstraintHasTypeParameter(target, dpos, path, _, base, _, _)
+            target = a.getTarget() and
+            type = a.getInferredType(apos, path) and
+            accessDeclarationPositionMatch(apos, dpos) and
+            typeParameterConstraintHasTypeParameter(target, dpos, path, _, constraint, _, _)
           )
         }
 
         newtype TTRelevantAccess =
           TRelevantAccess(Access a, AccessPosition apos, TypePath path) {
-            relevantAccess(a, apos, path, _)
+            relevantAccess(a, apos, path, _, _)
           }
 
         class RelevantAccess extends TTRelevantAccess {
@@ -878,7 +900,7 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
           }
 
           string toString() {
-            result = a.toString() + "," + apos.toString() + "," + pathToSub.toString()
+            result = a.toString() + ", " + apos.toString() + ", " + pathToSub.toString()
           }
 
           Location getLocation() { result = a.getLocation() }
@@ -886,29 +908,61 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
 
         module IsInstantiationOfInput implements IsInstantiationOfSig<RelevantAccess> {
           predicate potentialInstantiationOf(TypeAbstraction abs, RelevantAccess at, TypeMention sub) {
-            exists(TypeMention sup, Access a, AccessPosition apos, TypePath pathToSub |
+            // We only need to check instantiations where there are multiple candidates.
+            exists(
+              TypeMention constraintMention, Access a, AccessPosition apos, TypePath pathToSub,
+              Type type
+            |
+              type = resolveTypeMentionRoot(sub) and
               at = TRelevantAccess(a, apos, pathToSub) and
-              relevantAccess(a, apos, pathToSub, resolveTypeMentionRoot(sup)) and
-              typeSatisfiesConstraintTrans(abs, sub, sup, _, _)
+              relevantAccess(a, apos, pathToSub, type, resolveTypeMentionRoot(constraintMention)) and
+              typeSatisfiesConstraintTrans(abs, sub, constraintMention, _, _) and
+              countConstraintImplementations(type, resolveTypeMentionRoot(constraintMention)) > 1
             )
           }
         }
 
-        module IsInstantiationOf = GenIsInstantiationOf<RelevantAccess, IsInstantiationOfInput>;
+        /**
+         * The type at `a`, `apos`, `pathToSub` satisfies `constraint` through
+         * `abs`, `sub`, and `constraintMention`.
+         */
+        predicate hasConstraintMention(
+          Access a, AccessPosition apos, TypePath pathToSub, Type constraint, TypeAbstraction abs,
+          TypeMention sub, TypeMention constraintMention
+        ) {
+          exists(Type type | relevantAccess(a, apos, pathToSub, type, constraint) |
+            not exists(countConstraintImplementations(type, constraint)) and
+            typeSatisfiesConstraintTrans(abs, sub, constraintMention, _, _) and
+            resolveTypeMentionRoot(sub) = abs.getATypeParameter() and
+            constraint = resolveTypeMentionRoot(constraintMention)
+            or
+            countConstraintImplementations(type, constraint) > 0 and
+            typeToTypeMention(type, constraint, abs, sub, constraintMention) and
+            // When there are multiple ways the type could implement the
+            // constraint we need to find the right implementation, which is the
+            // one where the type instantiates the precondition.
+            if countConstraintImplementations(type, constraint) > 1
+            then
+              IsInstantiationOf<RelevantAccess, IsInstantiationOfInput>::isInstantiationOf(TRelevantAccess(a,
+                  apos, pathToSub), abs, sub)
+            else any()
+          )
+        }
 
         /**
          * Holds if the constraint is satisfied.
          */
         pragma[nomagic]
         predicate satisfiesConstraintTypeMention(
-          Access a, AccessPosition apos, TypePath pathToSub, TypeMention sup, TypePath path, Type t
+          Access a, AccessPosition apos, TypePath pathToSub, Type constraint, TypePath path, Type t
         ) {
-          relevantAccess(a, apos, pathToSub, resolveTypeMentionRoot(sup)) and
-          exists(TypeAbstraction abs, TypeMention sub, TypePath prefix, Type t0, RelevantAccess at |
+          exists(
+            RelevantAccess at, TypeAbstraction abs, TypeMention sub, Type t0, TypePath prefix,
+            TypeMention constraintMention
+          |
             at = TRelevantAccess(a, apos, pathToSub) and
-            // The found sub type is more general than the inferred access type
-            typeSatisfiesConstraintTrans(abs, sub, sup, prefix, t0) and
-            IsInstantiationOf::isInstantiationOf(at, abs, sub) and
+            hasConstraintMention(a, apos, pathToSub, constraint, abs, sub, constraintMention) and
+            typeSatisfiesConstraintTrans(abs, sub, constraintMention, prefix, t0) and
             (
               not t0 = abs.getATypeParameter() and t = t0 and path = prefix
               or
@@ -1049,13 +1103,13 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
         not exists(getTypeArgument(a, target, tp, _)) and
         target = a.getTarget() and
         exists(
-          TypeMention base, AccessPosition apos, DeclarationPosition dpos, TypePath pathToTp,
+          Type constraint, AccessPosition apos, DeclarationPosition dpos, TypePath pathToTp,
           TypePath pathToTp2
         |
           accessDeclarationPositionMatch(apos, dpos) and
-          typeParameterConstraintHasTypeParameter(target, dpos, pathToTp2, _,
-            resolveTypeMentionRoot(base), pathToTp, tp) and
-          AccessConstraint::satisfiesConstraintTypeMention(a, apos, pathToTp2, base,
+          typeParameterConstraintHasTypeParameter(target, dpos, pathToTp2, _, constraint, pathToTp,
+            tp) and
+          AccessConstraint::satisfiesConstraintTypeMention(a, apos, pathToTp2, constraint,
             pathToTp.append(path), t)
         )
       }

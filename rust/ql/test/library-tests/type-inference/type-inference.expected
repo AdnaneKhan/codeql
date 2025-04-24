@@ -2,6 +2,8 @@ testFailures
 | main.rs:132:26:132:31 | x.m1() | Fixed missing result: method=MyThing<S1>::m1 |
 | main.rs:133:26:133:31 | y.m1() | Fixed missing result: method=MyThing<S2>::m1 |
 | main.rs:133:26:133:33 | ... .a | Fixed missing result: fieldof=MyThing |
+| main.rs:272:28:272:91 | //... | Fixed spurious result: method=T::convert_to |
+| main.rs:276:28:276:52 | //... | Missing result: method=T::convert_to |
 | main.rs:285:26:285:38 | thing_s1.m1() | Fixed missing result: method=MyThing<S1>::m1 |
 | main.rs:286:26:286:38 | thing_s2.m1() | Fixed missing result: method=MyThing<S2>::m1 |
 | main.rs:286:26:286:40 | ... .a | Fixed missing result: fieldof=MyThing |
@@ -20,6 +22,8 @@ testFailures
 | main.rs:333:29:333:62 | //... | Fixed spurious result: type=x:S2 |
 | main.rs:335:29:335:62 | //... | Fixed spurious result: type=y:S1 |
 | main.rs:342:33:342:66 | //... | Fixed spurious result: type=x:S2 |
+| main.rs:345:37:345:71 | //... | Missing result: method=T::convert_to |
+| main.rs:345:37:345:71 | //... | Missing result: type=i:S1 |
 | main.rs:346:13:346:13 | j | Fixed missing result: type=j:S1 |
 | main.rs:924:26:924:37 | x5.flatten() | Fixed missing result: method=flatten |
 inferType
@@ -171,10 +175,8 @@ inferType
 | main.rs:175:16:175:19 | SelfParam |  | main.rs:173:5:178:5 | Self [trait MyProduct] |
 | main.rs:177:16:177:19 | SelfParam |  | main.rs:173:5:178:5 | Self [trait MyProduct] |
 | main.rs:180:43:180:43 | x |  | main.rs:180:26:180:40 | T2 |
-| main.rs:180:56:182:5 | { ... } |  | main.rs:155:5:156:14 | S1 |
 | main.rs:180:56:182:5 | { ... } |  | main.rs:180:22:180:23 | T1 |
 | main.rs:181:9:181:9 | x |  | main.rs:180:26:180:40 | T2 |
-| main.rs:181:9:181:14 | x.m1() |  | main.rs:155:5:156:14 | S1 |
 | main.rs:181:9:181:14 | x.m1() |  | main.rs:180:22:180:23 | T1 |
 | main.rs:186:15:186:18 | SelfParam |  | main.rs:144:5:147:5 | MyThing |
 | main.rs:186:15:186:18 | SelfParam | A | main.rs:155:5:156:14 | S1 |
@@ -275,10 +277,8 @@ inferType
 | main.rs:267:13:267:16 | self |  | main.rs:264:10:264:23 | T |
 | main.rs:267:13:267:21 | self.m1() |  | main.rs:155:5:156:14 | S1 |
 | main.rs:271:41:271:45 | thing |  | main.rs:271:23:271:38 | T |
-| main.rs:271:57:273:5 | { ... } |  | main.rs:155:5:156:14 | S1 |
 | main.rs:271:57:273:5 | { ... } |  | main.rs:271:19:271:20 | TS |
 | main.rs:272:9:272:13 | thing |  | main.rs:271:23:271:38 | T |
-| main.rs:272:9:272:26 | thing.convert_to() |  | main.rs:155:5:156:14 | S1 |
 | main.rs:272:9:272:26 | thing.convert_to() |  | main.rs:271:19:271:20 | TS |
 | main.rs:275:31:275:35 | thing |  | main.rs:275:14:275:28 | TP |
 | main.rs:275:48:277:5 | { ... } |  | main.rs:155:5:156:14 | S1 |
@@ -389,15 +389,12 @@ inferType
 | main.rs:319:31:319:38 | thing_s1 | A | main.rs:155:5:156:14 | S1 |
 | main.rs:320:26:320:26 | x |  | main.rs:155:5:156:14 | S1 |
 | main.rs:321:13:321:13 | y |  | main.rs:144:5:147:5 | MyThing |
-| main.rs:321:13:321:13 | y |  | main.rs:155:5:156:14 | S1 |
 | main.rs:321:13:321:13 | y | A | main.rs:157:5:158:14 | S2 |
 | main.rs:321:17:321:39 | call_trait_m1(...) |  | main.rs:144:5:147:5 | MyThing |
-| main.rs:321:17:321:39 | call_trait_m1(...) |  | main.rs:155:5:156:14 | S1 |
 | main.rs:321:17:321:39 | call_trait_m1(...) | A | main.rs:157:5:158:14 | S2 |
 | main.rs:321:31:321:38 | thing_s2 |  | main.rs:144:5:147:5 | MyThing |
 | main.rs:321:31:321:38 | thing_s2 | A | main.rs:157:5:158:14 | S2 |
 | main.rs:322:26:322:26 | y |  | main.rs:144:5:147:5 | MyThing |
-| main.rs:322:26:322:26 | y |  | main.rs:155:5:156:14 | S1 |
 | main.rs:322:26:322:26 | y | A | main.rs:157:5:158:14 | S2 |
 | main.rs:322:26:322:28 | y.a |  | main.rs:157:5:158:14 | S2 |
 | main.rs:325:13:325:13 | a |  | main.rs:149:5:153:5 | MyPair |
@@ -468,10 +465,8 @@ inferType
 | main.rs:344:21:344:37 | MyThing {...} |  | main.rs:144:5:147:5 | MyThing |
 | main.rs:344:21:344:37 | MyThing {...} | A | main.rs:155:5:156:14 | S1 |
 | main.rs:344:34:344:35 | S1 |  | main.rs:155:5:156:14 | S1 |
-| main.rs:345:13:345:13 | i |  | main.rs:155:5:156:14 | S1 |
 | main.rs:345:17:345:21 | thing |  | main.rs:144:5:147:5 | MyThing |
 | main.rs:345:17:345:21 | thing | A | main.rs:155:5:156:14 | S1 |
-| main.rs:345:17:345:34 | thing.convert_to() |  | main.rs:155:5:156:14 | S1 |
 | main.rs:346:13:346:13 | j |  | main.rs:155:5:156:14 | S1 |
 | main.rs:346:17:346:33 | convert_to(...) |  | main.rs:155:5:156:14 | S1 |
 | main.rs:346:28:346:32 | thing |  | main.rs:144:5:147:5 | MyThing |
