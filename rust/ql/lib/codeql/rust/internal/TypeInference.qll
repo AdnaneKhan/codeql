@@ -120,7 +120,7 @@ private module Input2 implements InputSig2 {
     result = tp.(SelfTypeParameter).getTrait()
   }
 
-  predicate typeSatisfiesConstraint(TypeAbstraction abs, TypeMention sub, TypeMention sup) {
+  predicate typeMentionSatisfiesConstraint(TypeAbstraction abs, TypeMention sub, TypeMention sup) {
     // `impl` blocks implementing traits
     exists(Impl impl |
       abs = impl and
@@ -1003,8 +1003,7 @@ private module Cached {
       or
       // The type of `receiver` is a type parameter and the method comes from a
       // trait bound on the type parameter.
-      result =
-        getTypeParameterMethod(inferTypeDeref(receiver, TypePath::nil()), receiver.getField())
+      result = getTypeParameterMethod(receiver.resolveTypeAt(TypePath::nil()), receiver.getField())
     )
   }
 

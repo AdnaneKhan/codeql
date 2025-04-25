@@ -252,42 +252,6 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
         result = app.resolveTypeAt(TypePath::cons(tp, suffix))
       )
     }
-
-    /**
-     * Holds if `term1` is a possible instantiation of `term2`. That is, by
-     * substituting the type parameters in `term2` it is possible to obtain
-     * `term1`.
-     *
-     * For instance, if `A` and `B` are type parameters we have:
-     * - `Pair<int, string>` is an instantiation of       `A`
-     * - `Pair<int, string>` is an instantiation of       `Pair<A, B>`
-     * - `Pair<int, int>`    is an instantiation of       `Pair<A, A>`
-     * - `Pair<int, bool>`   is _not_ an instantiation of `Pair<A, A>`
-     * - `Pair<int, string>` is _not_ an instantiation of `Pair<string, string>`
-     */
-    bindingset[abs, term1, term2]
-    predicate isInstantiationOf(TypeAbstraction abs, App term1, Term term2) {
-      // Check the root type
-      exists(Type root |
-        root = term2.resolveTypeAt(TypePath::nil()) and
-        (
-          root = abs.getATypeParameter()
-          or
-          root = term1.resolveTypeAt(TypePath::nil()) and
-          forall(TypePath path, Type t | term2.resolveTypeAt(path) = t |
-            if t = abs.getATypeParameter() then any() else term1.resolveTypeAt(path) = t
-          ) and
-          forall(TypeParameter tp, TypePath path1, TypePath path2 |
-            tp = abs.getATypeParameter() and
-            tp = term2.resolveTypeAt(path1) and
-            tp = term2.resolveTypeAt(path2) and
-            path1 != path2
-          |
-            term1.resolveTypeAt(path1) = term1.resolveTypeAt(path2)
-          )
-        )
-      )
-    }
   }
 
   /** Provides the input to `Make2`. */
@@ -332,8 +296,6 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
      */
     TypeMention getABaseTypeMention(Type t);
 
-    predicate typeSatisfiesConstraint(TypeAbstraction abs, TypeMention sub, TypeMention sup);
-
     /**
      * Gets a type constraint on the type parameter `tp`, if any. All
      * instantiations of the type parameter must satisfy the constraint.
@@ -348,6 +310,16 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
      * the type parameter `T` has the constraint `IComparable<T>`.
      */
     TypeMention getTypeParameterConstraint(TypeParameter tp);
+
+    /**
+     * Holds if
+     * - `abs` is a type abstraction of the free type variables in `typeMention`
+     *   and `constraint`, - and every instantiation of `typeMention` satisfies
+     * `constraint`.
+     */
+    predicate typeMentionSatisfiesConstraint(
+      TypeAbstraction abs, TypeMention typeMention, TypeMention constraint
+    );
   }
 
   module Make2<InputSig2 Input2> {
@@ -461,7 +433,18 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
         )
       }
 
-      // bindingset[abs, app, term]
+      /**
+       * Holds if `term1` is a possible instantiation of `term2`. That is, by
+       * making appropriate substitutions for the free type parameters in
+       * `term2`, given by `aps`, it is possible to obtain `term1`.
+       *
+       * For instance, if `A` and `B` are free type parameters we have:
+       * - `Pair<int, string>` is an instantiation of       `A`
+       * - `Pair<int, string>` is an instantiation of       `Pair<A, B>`
+       * - `Pair<int, int>`    is an instantiation of       `Pair<A, A>`
+       * - `Pair<int, bool>`   is _not_ an instantiation of `Pair<A, A>`
+       * - `Pair<int, string>` is _not_ an instantiation of `Pair<string, string>`
+       */
       predicate isInstantiationOf(App app, TypeAbstraction abs, TypeMention term) {
         potentialInstantiationOf(abs, app, term) and
         // All the concrete types in `term` are satisfied
@@ -494,18 +477,37 @@ module Make1<LocationSig Location, InputSig1<Location> Input1> {
         not exists(TypePath path, Type t | ment.resolveTypeAt(path) = t)
       }
 
+      module IsInstantiationOfInput implements IsInstantiationOfSig<TypeMention> {
+        pragma[nomagic]
+        private predicate getConstraintLhs(Type type, TypeAbstraction abs, TypeMention lhs) {
+          typeMentionSatisfiesConstraint(abs, lhs, _) and type = resolveTypeMentionRoot(lhs)
+        }
+
+        pragma[nomagic]
+        private predicate getConstraintRhs(Type type, TypeMention rhs) {
+          typeMentionSatisfiesConstraint(_, _, rhs) and type = resolveTypeMentionRoot(rhs)
+        }
+
+        predicate potentialInstantiationOf(TypeAbstraction abs, TypeMention sub, TypeMention sup) {
+          exists(Type type | getConstraintRhs(type, sub) and getConstraintLhs(type, abs, sup))
+        }
+      }
+
       // The type mention `sub` satisfies `sup` with the type `t` at the path `path`.
       predicate typeSatisfiesConstraintTrans(
         TypeAbstraction abs, TypeMention sub, TypeMention sup, TypePath path, Type t
       ) {
         // base case
-        typeSatisfiesConstraint(abs, sub, sup) and
+        typeMentionSatisfiesConstraint(abs, sub, sup) and
         sup.resolveTypeAt(path) = t
         or
         // recursive case
         exists(TypeAbstraction midAbs, TypeMention midSup, TypeMention midSub |
-          typeSatisfiesConstraint(abs, sub, midSup) and
-          TypeTreeUtils<TypeMention, TypeMention>::isInstantiationOf(abs, midSup, midSub) and
+          typeMentionSatisfiesConstraint(abs, sub, midSup) and
+          // NOTE: `midAbs` describe the free type variables in `midSub`, hence
+          // we use that for instantiation check.
+          IsInstantiationOf<TypeMention, IsInstantiationOfInput>::isInstantiationOf(midSup, midAbs,
+            midSub) and
           (
             typeSatisfiesConstraintTrans(midAbs, midSub, sup, path, t) and
             not t = abs.getATypeParameter()
