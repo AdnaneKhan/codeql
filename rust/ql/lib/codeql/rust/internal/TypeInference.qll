@@ -936,15 +936,19 @@ cached
 private module Cached {
   private import codeql.rust.internal.CachedStages
 
-  pragma[inline]
-  private Type inferTypeDeref(AstNode n, TypePath path) {
-    exists(Type t |
-      t = inferType(n) and
-      if t = TRefType()
-      then
-        // for reference types, lookup members in the type being referenced
-        result = inferType(n, TypePath::cons(TRefTypeParameter(), path))
-      else result = inferType(n, path)
+  pragma[nomagic]
+  private Type receiverRootType(Expr e) {
+    any(MethodCallExpr mce).getReceiver() = e and
+    result = inferType(e)
+  }
+
+  pragma[nomagic]
+  private Type inferReceiverType(Expr e, TypePath path) {
+    exists(Type root | root = receiverRootType(e) |
+      // for reference types, lookup members in the type being referenced
+      if root = TRefType()
+      then result = inferType(e, TypePath::cons(TRefTypeParameter(), path))
+      else result = inferType(e, path)
     )
   }
 
@@ -955,7 +959,7 @@ private module Cached {
 
     string getField() { result = mce.getIdentifier().getText() }
 
-    Type resolveTypeAt(TypePath path) { result = inferTypeDeref(this, path) }
+    Type resolveTypeAt(TypePath path) { result = inferReceiverType(this, path) }
   }
 
   private module IsInstantiationOfInput implements IsInstantiationOfSig<ReceiverExpr> {
@@ -1007,10 +1011,20 @@ private module Cached {
     )
   }
 
+  pragma[inline]
+  private Type inferRootTypeDeref(AstNode n) {
+    exists(Type t |
+      t = inferType(n) and
+      // for reference types, lookup members in the type being referenced
+      if t = TRefType()
+      then result = inferType(n, TypePath::singleton(TRefTypeParameter()))
+      else result = t
+    )
+  }
+
   pragma[nomagic]
   private Type getFieldExprLookupType(FieldExpr fe, string name) {
-    result = inferTypeDeref(fe.getContainer(), TypePath::nil()) and
-    name = fe.getIdentifier().getText()
+    result = inferRootTypeDeref(fe.getContainer()) and name = fe.getIdentifier().getText()
   }
 
   /**
